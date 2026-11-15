@@ -84,6 +84,20 @@ for (const name of shots) {
   }
 }
 
+// The coverage manifest, written beside the page so the dossier's text carries the proof
+// the board covers the watchlist: every watchlist slug, every board slug, and the counts.
+const coverage = {
+  as_of: snapshot.as_of,
+  source: snapshot.source,
+  watchlist_size: snapshot.watchlist.length,
+  watchlist: [...snapshot.watchlist].sort(),
+  board_size: board.length,
+  board: board.map((r) => r.slug).sort(),
+  early_size: radar.early_size,
+  live_size: radar.live_size,
+};
+writeFileSync(join(out, 'dashboard', 'coverage.json'), `${JSON.stringify(coverage, null, 1)}\n`);
+
 // The dossier is written last: the scorer rebuilds it from this /output and compares bytes.
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: { max_files: 400, max_bytes: 4_194_304 } }));
 
@@ -91,6 +105,6 @@ const top = board[0]!;
 const bottom = board[board.length - 1]!;
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: implied value $${top.implied_value_usd.toLocaleString('en-US')} at rank 1 (${top.slug}) down to $${bottom.implied_value_usd.toLocaleString('en-US')} at rank ${board.length}; global category multiple ${radar.global_multiple.toFixed(4)}\n` +
+    `token radar: implied value $${top.implied_value_usd.toLocaleString('en-US')} at rank 1 (${top.slug}) down to $${bottom.implied_value_usd.toLocaleString('en-US')} at rank ${board.length}; size curve log10(multiple) = ${radar.fit.intercept} + ${radar.fit.slope} x log10(TVL) on ${radar.fit.comps} comps, LOO ${radar.fit.loo_error} vs flat ${radar.fit.flat_error}\n` +
     `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (${dashboardFiles.length} files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );
