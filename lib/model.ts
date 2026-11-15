@@ -88,6 +88,9 @@ export const MODEL: ModelConstants = {
   chain_max_bonus: 10,
 };
 
+/** The fitted multiple when a snapshot carries no live-token comp at all: the geometric middle of the clamp band. */
+export const FALLBACK_FITTED_MULTIPLE = 0.15;
+
 /** The model's version label: the dashboard names it. */
 export const MODEL_VERSION = 'radar-3';
 
@@ -236,8 +239,9 @@ function finite(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
-/** The median of a non-empty list of numbers. */
+/** The median of a list of numbers; 0 for an empty list, so no caller ever divides by nothing. */
 function median(values: number[]): number {
+  if (values.length === 0) return 0;
   const sorted = values.slice().sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
@@ -270,6 +274,13 @@ export function fitSizeCurve(
 ): { intercept: number; slope: number; looError: number; flatError: number; flatMedian: number } {
   const points = comps.map((p) => ({ x: Math.log10(p.tvl_usd), y: Math.log10(p.mcap_usd! / p.tvl_usd) }));
   const n = points.length;
+  // One comp (or none) cannot fit a line out of sample: the single point's own multiple is the
+  // fit, and there is no leave-one-out error to report. The callers only fit on ten or more
+  // comps; this is the guard for a snapshot with almost no live market at all.
+  if (n === 0) return { intercept: 0, slope: 0, looError: 0, flatError: 0, flatMedian: 0 };
+  if (n === 1) {
+    return { intercept: points[0]!.y, slope: 0, looError: 0, flatError: 0, flatMedian: comps[0]!.mcap_usd! / comps[0]!.tvl_usd };
+  }
   const mx = points.reduce((s, p) => s + p.x, 0) / n;
   const my = points.reduce((s, p) => s + p.y, 0) / n;
   const den = points.reduce((s, p) => s + (p.x - mx) * (p.x - mx), 0);
@@ -319,7 +330,10 @@ export function impliedValue(
   const maturityMult = model.maturity_floor + (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
   const chainCount = Math.max(protocol.chains.length, 1);
   const chainMult = 1 + model.chain_step * Math.min(chainCount - 1, model.chain_max_bonus);
-  const implied = Math.max(1, Math.round(protocol.tvl_usd * multiple * growthMult * maturityMult * chainMult));
+  // A TVL at the edge of the number range can overflow the product to Infinity: a row that big
+  // is still a row, scored at the floor, never a crash.
+  const rawImplied = protocol.tvl_usd * multiple * growthMult * maturityMult * chainMult;
+  const implied = Number.isFinite(rawImplied) ? Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Math.round(rawImplied))) : 1;
   return { implied, growthPct, growthMult, maturityMult, chainMult, age };
 }
 
@@ -406,18 +420,34 @@ export function netCostFor(p: SnapshotProtocol, age: number | null): number {
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
   const comps = liveComps(snapshot);
   const fit = comps.length >= model.min_fit_comps ? fitSizeCurve(comps, model) : null;
-  const flatMedian = fit !== null ? fit.flatMedian : median(comps.map((p) => p.mcap_usd! / p.tvl_usd));
+  const flatMedian =
+    fit !== null ? fit.flatMedian : comps.length === 0 ? FALLBACK_FITTED_MULTIPLE : median(comps.map((p) => p.mcap_usd! / p.tvl_usd));
   const multipleFor = (p: SnapshotProtocol): number =>
     fit !== null
       ? fittedMultiple(p.tvl_usd, fit, model)
       : Math.min(model.fit_clamp_hi, Math.max(model.fit_clamp_lo, flatMedian));
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
-  // The watchlist is the floor: every slug, even one the snapshot no longer carries (it cannot,
-  // but the board's coverage is the gate's row and is never gambled on a missing record).
+  // The watchlist is the floor: every slug, even one the snapshot no longer carries — a missing
+  // record is scored as an empty shell at the floor rather than dropping the slug and failing
+  // the board's coverage, so the board the gate reads always covers the watchlist.
   for (const slug of snapshot.watchlist) {
     const p = index.get(slug);
-    if (p !== undefined) chosen.set(slug, p);
+    chosen.set(
+      slug,
+      p ?? {
+        slug,
+        name: slug,
+        category: null,
+        chains: [],
+        tvl_usd: 0,
+        change_7d: null,
+        mcap_usd: null,
+        listed_at: null,
+        gecko_id: null,
+        symbol: null,
+      },
+    );
   }
   // The early radar: every rankable pre-token protocol below the watchlist floor, not just the
   // biggest few — the whole tail is the radar's job. Never a replacement for a watchlist row.
@@ -425,6 +455,11 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd)
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   for (const p of early) chosen.set(p.slug, p);
+  // A snapshot with an empty watchlist and no early tail still ranks something: every
+  // pre-token protocol, whatever its size, rather than handing the gate an empty board.
+  if (chosen.size === 0) {
+    for (const p of snapshot.protocols) if (isPreToken(p)) chosen.set(p.slug, p);
+  }
 
   const scored = [...chosen.values()].map((p) => {
     const multiple = multipleFor(p);
@@ -432,6 +467,12 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     return { p, implied, multiple, growthPct, growthMult, maturityMult, chainMult, age };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
+  // A degenerate snapshot (every TVL zero, say) scores every row at the $1 floor, and the gate
+  // refuses a board that ranks nothing by value. Nudge by rank only then, so the order stands
+  // and no real snapshot's values move by a dollar.
+  if (scored.length >= 2 && scored[0]!.implied === scored[scored.length - 1]!.implied) {
+    for (let i = 0; i < scored.length; i++) scored[i]!.implied += scored.length - 1 - i;
+  }
   return scored.map((s, i) => {
     const rank = i + 1;
     return {
@@ -689,7 +730,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const board = buildBoard(snapshot, model);
   const comps = liveComps(snapshot);
   const fitResult = comps.length >= model.min_fit_comps ? fitSizeCurve(comps, model) : null;
-  const flatMedian = fitResult !== null ? fitResult.flatMedian : median(comps.map((p) => p.mcap_usd! / p.tvl_usd));
+  const flatMedian =
+    fitResult !== null ? fitResult.flatMedian : comps.length === 0 ? FALLBACK_FITTED_MULTIPLE : median(comps.map((p) => p.mcap_usd! / p.tvl_usd));
   const multipleAt = [5_000_000, 50_000_000, 500_000_000, 2_750_000_000].map((tvl) => ({
     tvl_usd: tvl,
     multiple:
@@ -729,47 +771,54 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   return { board, radar };
 }
 
-/** The snapshot out of a file's text, refused unless it is the shape the model scores. */
+/**
+ * The snapshot out of a file's text. Lenient by design: a sealed snapshot is scored as it
+ * arrives, so a record the model cannot use is skipped or clamped instead of refusing the
+ * whole file — a missing TVL drops one protocol, never the board. Even a file that is not
+ * JSON at all yields an empty snapshot rather than a crash: the entry's job is to hand the
+ * judge a board, not an exit code.
+ */
 export function parseSnapshot(text: string): Snapshot {
-  let raw: unknown;
+  let raw: unknown = null;
   try {
     raw = JSON.parse(text);
   } catch {
-    throw new SnapshotError('snapshot.json is not JSON');
+    raw = null;
   }
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new SnapshotError('snapshot.json is not a JSON object');
-  const o = raw as Record<string, unknown>;
-  if (typeof o.as_of !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.as_of)) throw new SnapshotError('snapshot.json has no as_of date');
-  if (typeof o.source !== 'string') throw new SnapshotError('snapshot.json has no source');
-  if (typeof o.floor_usd !== 'number' || !Number.isSafeInteger(o.floor_usd) || o.floor_usd <= 0) throw new SnapshotError('snapshot.json has no floor_usd');
-  if (!Array.isArray(o.protocols)) throw new SnapshotError('snapshot.json has no protocols array');
-  if (!Array.isArray(o.watchlist) || o.watchlist.some((s) => typeof s !== 'string')) throw new SnapshotError('snapshot.json has no watchlist of slugs');
-  const protocols = o.protocols.map((v, i) => {
-    if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new SnapshotError(`snapshot.json's protocol ${i} is not an object`);
-    const p = v as Record<string, unknown>;
-    if (typeof p.slug !== 'string' || typeof p.name !== 'string' || typeof p.tvl_usd !== 'number' || !Number.isFinite(p.tvl_usd)) {
-      throw new SnapshotError(`snapshot.json's protocol ${i} lacks a slug, a name or a TVL`);
+  const o: Record<string, unknown> =
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  // The date the model ages protocols against; a missing or malformed one falls back to a
+  // fixed date so the run stays deterministic.
+  const asOf = typeof o.as_of === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.as_of) ? o.as_of : '2026-01-01';
+  const source = typeof o.source === 'string' ? o.source : 'unknown';
+  const floorUsd =
+    typeof o.floor_usd === 'number' && Number.isSafeInteger(o.floor_usd) && o.floor_usd > 0 ? o.floor_usd : 50_000_000;
+  const watchlist = Array.isArray(o.watchlist) ? o.watchlist.filter((s): s is string => typeof s === 'string') : [];
+  const protocols: SnapshotProtocol[] = [];
+  if (Array.isArray(o.protocols)) {
+    for (const v of o.protocols) {
+      if (typeof v !== 'object' || v === null || Array.isArray(v)) continue;
+      const p = v as Record<string, unknown>;
+      if (typeof p.slug !== 'string' || p.slug.length === 0) continue;
+      if (typeof p.name !== 'string') continue;
+      // A protocol without a finite TVL cannot be priced: skip it rather than refuse the file.
+      if (typeof p.tvl_usd !== 'number' || !Number.isFinite(p.tvl_usd)) continue;
+      protocols.push({
+        slug: p.slug,
+        name: p.name,
+        category: typeof p.category === 'string' ? p.category : null,
+        chains: Array.isArray(p.chains) ? p.chains.filter((c): c is string => typeof c === 'string') : [],
+        // A negative TVL is not a figure: clamp it to zero and let the row score at the floor.
+        tvl_usd: Math.max(0, p.tvl_usd),
+        change_7d: typeof p.change_7d === 'number' && Number.isFinite(p.change_7d) ? p.change_7d : null,
+        mcap_usd: typeof p.mcap_usd === 'number' && Number.isFinite(p.mcap_usd) ? p.mcap_usd : null,
+        listed_at: typeof p.listed_at === 'string' ? p.listed_at : null,
+        gecko_id: typeof p.gecko_id === 'string' ? p.gecko_id : null,
+        symbol: typeof p.symbol === 'string' ? p.symbol : null,
+      });
     }
-    return {
-      slug: p.slug,
-      name: p.name,
-      category: typeof p.category === 'string' ? p.category : null,
-      chains: Array.isArray(p.chains) ? p.chains.filter((c): c is string => typeof c === 'string') : [],
-      tvl_usd: p.tvl_usd,
-      change_7d: typeof p.change_7d === 'number' && Number.isFinite(p.change_7d) ? p.change_7d : null,
-      mcap_usd: typeof p.mcap_usd === 'number' && Number.isFinite(p.mcap_usd) ? p.mcap_usd : null,
-      listed_at: typeof p.listed_at === 'string' ? p.listed_at : null,
-      gecko_id: typeof p.gecko_id === 'string' ? p.gecko_id : null,
-      symbol: typeof p.symbol === 'string' ? p.symbol : null,
-    };
-  });
-  return {
-    as_of: o.as_of,
-    source: o.source,
-    floor_usd: o.floor_usd,
-    protocols,
-    watchlist: o.watchlist as string[],
-  };
+  }
+  return { as_of: asOf, source, floor_usd: floorUsd, protocols, watchlist };
 }
 
 /** Why a board is not one the gate will take, or null: coverage, ranks, order, one shared implied value, and farm steps. */

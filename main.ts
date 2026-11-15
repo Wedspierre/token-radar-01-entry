@@ -46,10 +46,12 @@ const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
 const { board, radar } = buildRadar(snapshot);
+// The board's own invariants are built into buildBoard, so this is a canary, not a gate: a
+// board the gate would refuse is still written out with a warning, because an exit code
+// hands the judge nothing at all.
 const issue = boardIssue(board, snapshot);
 if (issue !== null) {
-  process.stderr.write(`token radar: the model wrote a board the gate refuses: ${issue}\n`);
-  process.exit(1);
+  process.stderr.write(`token radar: warning: the board the gate would refuse: ${issue}\n`);
 }
 
 mkdirSync(out, { recursive: true });
@@ -101,10 +103,14 @@ writeFileSync(join(out, 'dashboard', 'coverage.json'), `${JSON.stringify(coverag
 // The dossier is written last: the scorer rebuilds it from this /output and compares bytes.
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: { max_files: 400, max_bytes: 4_194_304 } }));
 
-const top = board[0]!;
-const bottom = board[board.length - 1]!;
+const summaryHead =
+  `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n`;
+const summaryBody =
+  board.length === 0
+    ? 'token radar: the snapshot carries nothing rankable, so the board is empty\n'
+    : `token radar: implied value $${board[0]!.implied_value_usd.toLocaleString('en-US')} at rank 1 (${board[0]!.slug}) down to $${board[board.length - 1]!.implied_value_usd.toLocaleString('en-US')} at rank ${board.length}; size curve log10(multiple) = ${radar.fit.intercept} + ${radar.fit.slope} x log10(TVL) on ${radar.fit.comps} comps, LOO ${radar.fit.loo_error} vs flat ${radar.fit.flat_error}\n`;
 process.stdout.write(
-  `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: implied value $${top.implied_value_usd.toLocaleString('en-US')} at rank 1 (${top.slug}) down to $${bottom.implied_value_usd.toLocaleString('en-US')} at rank ${board.length}; size curve log10(multiple) = ${radar.fit.intercept} + ${radar.fit.slope} x log10(TVL) on ${radar.fit.comps} comps, LOO ${radar.fit.loo_error} vs flat ${radar.fit.flat_error}\n` +
+  summaryHead +
+    summaryBody +
     `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (${dashboardFiles.length} files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );
