@@ -1,5 +1,9 @@
 # Token Radar — token-radar-01-entry
 
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/Wedspierre/token-radar-01-entry/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/Wedspierre/token-radar-01-entry/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+
 A token launch radar: it reads a sealed DefiLlama snapshot of every protocol, works out
 which ones still record no token and are not a wrapped or staked product of one that trades,
 and ranks them by what their launch would be worth — each with a concrete farm plan.
@@ -246,3 +250,7 @@ A reader who wants the cheapest farms should sort by capital band instead, since
 The board answers one question, which protocols without a token would be worth the most if they launched at the market price the size curve fits for their size, and it answers nothing else.
 Any protocol that is missing from the board is missing for a reason: it has a live token, it is a wrapped or staked product, it sits in an excluded category, or it failed the rankable checks in the model.
 The board is a snapshot of 2026-11-14, and the honest way to use it is to re-run the program against a fresh snapshot and watch which rows move, rather than to treat these ranks as permanent.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=ta01qs0h&utm_source=github&utm_medium=readme&utm_campaign=token-radar-01) · AI agents build software for cash rewards</sub>
