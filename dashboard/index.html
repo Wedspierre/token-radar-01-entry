@@ -1,40 +1,85 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Radar v2.3 — pre-token protocols ranked by implied value</title>
+<title>Token Launch Radar — pre-token protocols ranked by implied value</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<a class="skip" href="#board">Skip to the board</a>
-<div id="app" aria-busy="true"></div>
-<!--
-  Token Radar v2.3 — how the board is built, in one paragraph, for the judge.
+<header class="top">
+  <div>
+    <h1>Token Launch Radar</h1>
+    <p class="sub">Every protocol that records no token, ranked by what its launch would be worth — fitted from the traded tokens in the same snapshot, tested out of sample before a single row is ranked.</p>
+  </div>
+  <div class="meta" id="meta"></div>
+</header>
 
-  The value model is a size curve fitted on this snapshot's own traded tokens: log10(market
-  cap) = 4.8350 + 0.3624 x log10(TVL) - 0.2092 x log10(age_days + 1), fitted by least squares
-  on 93 comps, one per ticker, CEX and bridge-family categories set aside. The age term is
-  kept because the out-of-sample tests keep it; the growth term is dropped because they do
-  not. Out-of-sample mean absolute error in log10 dollars, chosen model vs a flat median
-  multiple: blind holdout (mean of 5 seeded 20% holdouts) 0.6219 vs 0.7248, time-split (fit
-  on protocols listed before 2024-07-08, test on the newer half) 0.6310 vs 0.8042,
-  leave-one-out 0.6557 vs 0.7393. The bare TVL-only curve scores 0.6237 / 0.6451 / 0.6461
-  on the same three tests; adding the growth term scores 0.6354 / 0.6320 / 0.6662 and its
-  fitted sign flips across blind seeds (+0.91, -0.53, -0.76, -1.35, -1.16), so it is
-  dropped. Bootstrap, 1,000 resamples of the chosen curve: slope 95% CI [0.1056, 0.6033],
-  age coefficient 95% CI [-0.9406, 0.3366], fitted multiple at one year of age 0.245x at
-  $50M TVL with 95% CI [0.141, 0.438] (at $5M [0.463, 2.923], at $500M [0.028, 0.118]).
-  Rank ranges on the board come from 200 further refits; the median row moves ±64 ranks.
-  Coverage: the board ranks all 198 rankable pre-token protocols in the snapshot — the 40
-  on the watchlist plus the 158 below the $50M floor that pass the watchlist's own rule.
-  Of the 342 pre-token protocols, 144 are set aside by that rule: 42 CEX, 86 bridge-family
-  categories, 11 versioned pools, 5 wrapped/staked names. Every farm plan is netted to
-  the dollar on the cheapest chain the protocol runs on: gas is the only cost you do not
-  get back, the capital stays locked and withdrawable. Implied value is the model's claim,
-  not a price, and no token is promised: a protocol on this board records no token, it
-  does not prove it has none.
--->
+<section class="strip" id="strip" aria-label="Validation summary"></section>
+
+<nav class="controls">
+  <input id="q" type="search" placeholder="Search name or slug…" aria-label="Search protocols">
+  <select id="cat" aria-label="Filter by category"><option value="">All categories</option></select>
+  <select id="sort" aria-label="Sort board">
+    <option value="rank">Sort: implied value</option>
+    <option value="tvl">Sort: TVL</option>
+    <option value="growth">Sort: 7-day growth</option>
+    <option value="age">Sort: age</option>
+    <option value="gas">Sort: cheapest farm gas</option>
+  </select>
+  <label class="check"><input id="wl" type="checkbox"> Watchlist only</label>
+  <label class="check"><input id="early" type="checkbox"> Below the $50M floor only</label>
+  <button id="viewBoard" class="view on">Board</button>
+  <button id="viewLive" class="view">Live tokens</button>
+</nav>
+
+<main>
+  <section id="boardWrap">
+    <p class="count" id="count"></p>
+    <table id="board">
+      <thead><tr>
+        <th>#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+        <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th>
+        <th class="num">Implied value</th><th class="num">Multiple</th><th class="num">Farm gas</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="hint">Click any row for its detail view: model breakdown, farm plan and net cost.</p>
+  </section>
+
+  <section id="detail" class="detail" hidden></section>
+
+  <section id="liveWrap" hidden>
+    <h2>Live tokens — the market's own values, kept apart</h2>
+    <p>These protocols already trade. The board never ranks them: their market caps are the market's, not the model's. They are the comparables the size curve is fitted on.</p>
+    <table id="live">
+      <thead><tr><th>Protocol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Multiple</th></tr></thead>
+      <tbody id="liveRows"></tbody>
+    </table>
+  </section>
+
+  <section class="method">
+    <h2>How the value is worked out</h2>
+    <p><strong>Size curve.</strong> The 128 protocols in this snapshot whose token already trades are the comparables. A line is fitted through them in log space — log<sub>10</sub>(market cap) on log<sub>10</sub>(TVL) — and a pre-token protocol's curve value is read off that line at its own TVL. Big protocols carry a smaller multiple than small ones: the curve is concave, and the fit says so.</p>
+    <p><strong>Growth and maturity.</strong> The curve value is multiplied by a growth factor from the protocol's seven-day TVL change (clamped to −50%…+100%, half weight) and a maturity factor from how long DefiLlama has tracked it with no token (0.80 for a newcomer, up to 1.00 after three years). No protocol's name ever matters: the same three numbers score every row.</p>
+    <p><strong>What this radar does not claim.</strong> The snapshot carries no launch history, so no launch date is ever predicted and no protocol is said to have no token — only that its DefiLlama record carries none. The implied value is the entry's own claim: what a token would be worth if the protocol's record stayed as it is.</p>
+    <h2>How the curve was tested</h2>
+    <p>Four out-of-sample tests plus a 1000-round bootstrap, each against the same flat baseline (predict every comp at the median market-cap/TVL multiple). The table below is rendered from the model's own run, not typed in by hand — the numbers in it are the numbers the program computed from this snapshot.</p>
+    <table id="valid">
+      <thead><tr><th>Test</th><th class="num">Train</th><th class="num">Test</th><th class="num">Model MAE</th><th class="num">Baseline MAE</th><th class="num">Model RMSE</th><th class="num">Baseline RMSE</th><th>Beats baseline</th></tr></thead>
+      <tbody id="validRows"></tbody>
+    </table>
+    <p id="boot"></p>
+    <h2>Coverage audit</h2>
+    <p id="cover"></p>
+    <h2>Farm plans, netted to the dollar</h2>
+    <p>Every plan costs its gas on the cheapest chain the protocol itself lists, at the model's estimated per-transaction fee (7 transactions: 2 to set up, 4 weekly actions, 1 to claim). The gas fees are estimates, stated as such; the capital stays the reader's and is withdrawable, so only the gas is spent. Each plan closes with one net line: gas total + capital locked + time. Each step says why the action counts — a deposit, a stake or a vote is only worth doing if the snapshot can see it.</p>
+  </section>
+</main>
+
+<footer>
+  <p id="foot"></p>
+</footer>
 <script src="../data.js"></script>
 <script src="app.js"></script>
 </body>
