@@ -1,45 +1,24 @@
-// Token Radar v2.3 — the entrypoint (Node 22, standard library only).
+// Token radar v2.4 — the entrypoint.
 //
-// The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>),
-// fits the size curve on the snapshot's own traded tokens, runs the out-of-sample triple
-// lock (blind holdout, time-split, leave-one-out) plus a 1,000-resample bootstrap and 200
-// refits for rank stability, scores every rankable pre-token protocol, writes the ranked
-// board to /output/board.json, and copies this repository's dashboard/ and screenshots/
-// to /output. Last, it writes /output/dossier.json, the summary the judge reads, with the
-// vendored make.fun library.
+// Reads the sealed snapshot, fits the comps size curve and validates it
+// (lib/model.ts), writes the ranked board, the dashboard's data, the dashboard
+// and the screenshots, and writes the dossier the judge reads — with the
+// vendored make.fun library, the scorer's own copy.
 //
-// The dashboard is a static page, no framework and no network: dashboard/index.html,
-// dashboard/app.css and dashboard/app.js read /output/data.js, which this program writes
-// from the same board. The page recomputes a row's implied value from the snapshot figures
-// and the fitted coefficients, so the page's code and the board's data are visibly the same
-// arithmetic, and it renders the out-of-sample table, the bootstrap intervals and every
-// farm plan's net line from that same data.
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input <snapshot.json|directory>
 //
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
+// The program is deterministic: seeded splits only, no clock, no network, so
+// two runs write the same bytes.
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  boardIssue,
-  bootstrapReport,
-  buildBoard,
-  buildRadar,
-  dataScript,
-  fitOn,
-  flatBaselineTests,
-  oosTests,
-  parseSnapshot,
-  rankStability,
-  selectComps,
-  selectTerms,
-} from './lib/model.ts';
+import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 
-/** The scorer's own caps (reference/gate.json): the text cap shapes the bytes, the rest refuse. */
+/** The scorer's own caps: the text cap shapes the bytes, the rest refuse. */
 const TEXT_MAX_BYTES = 65_536;
 const SCREENSHOT_CAPS = { max: 4, max_bytes: 524_288 };
 const IMAGE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
@@ -61,32 +40,15 @@ if (!existsSync(inputFile)) {
 const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
-
-// The model, fitted at run time from this snapshot's own traded tokens.
-const comps = selectComps(snapshot);
-const { terms, table } = selectTerms(snapshot.as_of, comps);
-// Refit the chosen terms on all comps: the curve the board is scored with.
-const fit = fitOn(terms, snapshot.as_of, comps);
-
-// The out-of-sample triple lock, on the same tests the term selection used.
-const oos = {
-  chosen: oosTests(terms, snapshot.as_of, comps),
-  base: oosTests({ growth: false, age: false }, snapshot.as_of, comps),
-  flat: flatBaselineTests(snapshot.as_of, comps),
-};
-const bootstrap = bootstrapReport(terms, snapshot.as_of, comps);
-const board = buildBoard(snapshot, fit);
-const stability = rankStability(snapshot, fit, board);
-const { board: finalBoard, radar } = buildRadar(snapshot, fit, board, oos, table, bootstrap, stability);
-
-const issue = boardIssue(finalBoard, snapshot);
+const { board, radar } = buildRadar(snapshot);
+const issue = boardIssue(board, snapshot);
 if (issue !== null) {
   process.stderr.write(`token radar: the model wrote a board the gate refuses: ${issue}\n`);
   process.exit(1);
 }
 
 mkdirSync(out, { recursive: true });
-writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: finalBoard })}\n`);
+writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
 writeFileSync(join(out, 'data.js'), dataScript(radar));
 
 /** Copy one directory's regular files into `to`, skipping names that start with a dot. */
@@ -120,11 +82,10 @@ for (const name of shots) {
 // The dossier is written last: the scorer rebuilds it from this /output and compares bytes.
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: { max_files: 400, max_bytes: 4_194_304 } }));
 
-const fmt = (n: number): string => n.toFixed(4);
+const v = radar.validation;
 process.stdout.write(
-  `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${finalBoard.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: comps ${comps.length} one-per-ticker, terms ${radar.fit.terms}, intercept ${radar.fit.intercept}, slope ${radar.fit.slope}, age_coef ${radar.fit.age_coef ?? 'none'}, R2 ${radar.fit.r2}\n` +
-    `token radar: OOS MAE log10 — blind ${fmt(oos.chosen.blind)} / time-split ${fmt(oos.chosen.timeSplit)} / LOO ${fmt(oos.chosen.loo)} (flat median ${fmt(oos.flat.blind)} / ${fmt(oos.flat.timeSplit)} / ${fmt(oos.flat.loo)})\n` +
-    `token radar: bootstrap slope 95% CI [${bootstrap.slope.lo.toFixed(4)}, ${bootstrap.slope.hi.toFixed(4)}], multiple@50M [${bootstrap.multiple50m.lo.toFixed(3)}, ${bootstrap.multiple50m.hi.toFixed(3)}], median rank range ${radar.medianRankRange}\n` +
-    `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')}, ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
+  `token radar v2.4: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows ranked (${radar.early_size} early below the floor, ${radar.above_floor_extra} above it, ${radar.live_size} live set aside)\n` +
+    `token radar v2.4: size curve log10(mcap) = ${v.intercept} + ${v.slope} * log10(tvl) over ${v.comps_n} comps, R2 ${v.r2}; multiples $5M ${v.multiple_5m} / $50M ${v.multiple_50m} / $500M ${v.multiple_500m}\n` +
+    `token radar v2.4: walk-forward MAE ${v.legs[0]!.model_mae} vs baseline ${v.legs[0]!.baseline_mae}; reverse ${v.legs[1]!.model_mae} vs ${v.legs[1]!.baseline_mae}; holdout ${v.legs[2]!.model_mae} vs ${v.legs[2]!.baseline_mae}; LOO ${v.legs[3]!.model_mae} vs ${v.legs[3]!.baseline_mae}\n` +
+    `token radar v2.4: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')}, ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );
