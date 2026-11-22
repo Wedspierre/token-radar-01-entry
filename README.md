@@ -1,5 +1,9 @@
 # Token Launch Radar v2.4
 
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/Wedspierre/token-radar-01-entry/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/Wedspierre/token-radar-01-entry/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+
 A pre-token protocol radar: every protocol in the sealed snapshot that records
 no token, ranked by what its launch would be worth — fitted from the traded
 tokens in the same snapshot, tested out of sample before a single row is ranked.
