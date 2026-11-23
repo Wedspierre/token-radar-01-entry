@@ -3,83 +3,101 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Launch Radar — pre-token protocols ranked by implied value</title>
+<title>Token Radar v2.5 — which pre-token protocol is worth farming next</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header class="top">
-  <div>
-    <h1>Token Launch Radar</h1>
-    <p class="sub">Every protocol that records no token, ranked by what its launch would be worth — fitted from the traded tokens in the same snapshot, tested out of sample before a single row is ranked.</p>
+  <div class="brand">
+    <div class="mark">◉</div>
+    <div>
+      <h1>TOKEN RADAR <span class="ver">v2.5</span></h1>
+      <p class="sub">Every pre-token protocol in one sealed snapshot, ranked by what its launch would be worth — and what to do about it.</p>
+    </div>
   </div>
   <div class="meta" id="meta"></div>
 </header>
 
-<section class="strip" id="strip" aria-label="Validation summary"></section>
-
-<nav class="controls">
-  <input id="q" type="search" placeholder="Search name or slug…" aria-label="Search protocols">
-  <select id="cat" aria-label="Filter by category"><option value="">All categories</option></select>
-  <select id="sort" aria-label="Sort board">
-    <option value="rank">Sort: implied value</option>
-    <option value="tvl">Sort: TVL</option>
-    <option value="growth">Sort: 7-day growth</option>
-    <option value="age">Sort: age</option>
-    <option value="gas">Sort: cheapest farm gas</option>
-  </select>
-  <label class="check"><input id="wl" type="checkbox"> Watchlist only</label>
-  <label class="check"><input id="early" type="checkbox"> Below the $50M floor only</label>
-  <button id="viewBoard" class="view on">Board</button>
-  <button id="viewLive" class="view">Live tokens</button>
+<nav class="tabs" id="tabs">
+  <button data-view="board" class="on">Board</button>
+  <button data-view="curve">Size curve &amp; validation</button>
+  <button data-view="anchors">Traded anchors</button>
+  <button data-view="method">Method &amp; limits</button>
 </nav>
 
 <main>
-  <section id="boardWrap">
+  <section id="view-board" class="view">
+    <div class="stats" id="stats"></div>
+    <div class="controls">
+      <input id="q" type="search" placeholder="Search name or slug…" aria-label="Search protocols">
+      <select id="cat" aria-label="Filter by category"><option value="">All categories</option></select>
+      <select id="chain" aria-label="Filter by chain"><option value="">All chains</option></select>
+      <select id="basis" aria-label="Filter by basis">
+        <option value="">All 198 rows</option>
+        <option value="watchlist">Watchlist only (40)</option>
+        <option value="early">Early rows only (158)</option>
+      </select>
+      <select id="sort" aria-label="Sort board">
+        <option value="rank">Sort: implied value</option>
+        <option value="tvl">Sort: TVL</option>
+        <option value="growth">Sort: 7-day growth</option>
+        <option value="age">Sort: age (oldest first)</option>
+        <option value="net">Sort: cheapest farm</option>
+      </select>
+    </div>
     <p class="count" id="count"></p>
-    <table id="board">
+    <table class="board">
       <thead><tr>
         <th>#</th><th>Protocol</th><th>Category</th><th>Chains</th>
         <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th>
-        <th class="num">Implied value</th><th class="num">Multiple</th><th class="num">Farm gas</th>
+        <th class="num">Implied value</th><th class="num">Farm net</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
-    <p class="hint">Click any row for its detail view: model breakdown, farm plan and net cost.</p>
+    <p class="hint">Click any row for the model breakdown and the full 7-step farm plan. Implied value is this entry's own claim, never make.fun's.</p>
   </section>
 
-  <section id="detail" class="detail" hidden></section>
+  <section id="view-curve" class="view" hidden>
+    <h2>The size curve, fitted — not assumed</h2>
+    <p class="lede">Log market cap on log TVL, fitted on the snapshot's own <b id="compN"></b> traded tokens. Each dot is a token that already trades; the line is the curve the board is priced from.</p>
+    <canvas id="chart" width="1080" height="420"></canvas>
+    <div class="grid2">
+      <div class="card"><h3>Out-of-sample tests</h3><div id="oos"></div></div>
+      <div class="card"><h3>Outlier stress</h3><div id="stress"></div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Size multiples (bootstrap, 1,000 draws)</h3><div id="mults"></div></div>
+      <div class="card"><h3>Category segments</h3><div id="segs"></div></div>
+    </div>
+    <div class="card"><h3>Chain audit — reported, never fitted</h3><div id="chains"></div>
+      <p class="fine">Chain samples outside Ethereum are n ≤ 9, too small to fit. The board applies no chain adjustment; the audit is shown so the reader can see the gap.</p>
+    </div>
+  </section>
 
-  <section id="liveWrap" hidden>
-    <h2>Live tokens — the market's own values, kept apart</h2>
-    <p>These protocols already trade. The board never ranks them: their market caps are the market's, not the model's. They are the comparables the size curve is fitted on.</p>
-    <table id="live">
-      <thead><tr><th>Protocol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Multiple</th></tr></thead>
-      <tbody id="liveRows"></tbody>
+  <section id="view-anchors" class="view" hidden>
+    <h2>Traded anchors — the market's own values</h2>
+    <p class="lede">The 24 largest traded tokens in the snapshot, with the market cap the market actually gives them next to the value the curve would predict. The gap between the two columns is the model's honest error.</p>
+    <table class="board">
+      <thead><tr><th>Protocol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Curve value</th><th class="num">Multiple</th></tr></thead>
+      <tbody id="live"></tbody>
     </table>
   </section>
 
-  <section class="method">
-    <h2>How the value is worked out</h2>
-    <p><strong>Size curve.</strong> The 128 protocols in this snapshot whose token already trades are the comparables. A line is fitted through them in log space — log<sub>10</sub>(market cap) on log<sub>10</sub>(TVL) — and a pre-token protocol's curve value is read off that line at its own TVL. Big protocols carry a smaller multiple than small ones: the curve is concave, and the fit says so.</p>
-    <p><strong>Growth and maturity.</strong> The curve value is multiplied by a growth factor from the protocol's seven-day TVL change (clamped to −50%…+100%, half weight) and a maturity factor from how long DefiLlama has tracked it with no token (0.80 for a newcomer, up to 1.00 after three years). No protocol's name ever matters: the same three numbers score every row.</p>
-    <p><strong>What this radar does not claim.</strong> The snapshot carries no launch history, so no launch date is ever predicted and no protocol is said to have no token — only that its DefiLlama record carries none. The implied value is the entry's own claim: what a token would be worth if the protocol's record stayed as it is.</p>
-    <h2>How the curve was tested</h2>
-    <p>Four out-of-sample tests plus a 1000-round bootstrap, each against the same flat baseline (predict every comp at the median market-cap/TVL multiple). The table below is rendered from the model's own run, not typed in by hand — the numbers in it are the numbers the program computed from this snapshot.</p>
-    <table id="valid">
-      <thead><tr><th>Test</th><th class="num">Train</th><th class="num">Test</th><th class="num">Model MAE</th><th class="num">Baseline MAE</th><th class="num">Model RMSE</th><th class="num">Baseline RMSE</th><th>Beats baseline</th></tr></thead>
-      <tbody id="validRows"></tbody>
-    </table>
-    <p id="boot"></p>
-    <h2>Coverage audit</h2>
-    <p id="cover"></p>
-    <h2>Farm plans, netted to the dollar</h2>
-    <p>Every plan costs its gas on the cheapest chain the protocol itself lists, at the model's estimated per-transaction fee (7 transactions: 2 to set up, 4 weekly actions, 1 to claim). The gas fees are estimates, stated as such; the capital stays the reader's and is withdrawable, so only the gas is spent. Each plan closes with one net line: gas total + capital locked + time. Each step says why the action counts — a deposit, a stake or a vote is only worth doing if the snapshot can see it.</p>
+  <section id="view-method" class="view" hidden>
+    <h2>Method &amp; limits — read this before farming anything</h2>
+    <div class="card prose" id="method"></div>
   </section>
 </main>
 
+<aside id="detail" class="detail" hidden>
+  <button class="close" id="closeDetail" aria-label="Close detail">✕</button>
+  <div id="detailBody"></div>
+</aside>
+
 <footer>
-  <p id="foot"></p>
+  <p>Snapshot <span id="footAsOf"></span> · <span id="footSource"></span> · Model <b>radar-2.5</b> · Implied values are the entry's own claim. “Records no token” is DefiLlama's record, never proof a protocol has no token. No launch date is predicted: the snapshot carries no launch history, so no clock is fitted.</p>
 </footer>
+
 <script src="../data.js"></script>
 <script src="app.js"></script>
 </body>
