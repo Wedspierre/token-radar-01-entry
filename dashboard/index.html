@@ -3,101 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Radar v2.5 — which pre-token protocol is worth farming next</title>
+<title>Token Radar v2.6 — expected launch value, odds from the peers' record</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header class="top">
-  <div class="brand">
-    <div class="mark">◉</div>
-    <div>
-      <h1>TOKEN RADAR <span class="ver">v2.5</span></h1>
-      <p class="sub">Every pre-token protocol in one sealed snapshot, ranked by what its launch would be worth — and what to do about it.</p>
-    </div>
+  <div class="wrap">
+    <p class="kicker">TOKEN RADAR v2.6 &middot; DEFI LLAMA SNAPSHOT 2026-11-14 &middot; 758 PROTOCOLS</p>
+    <h1>Which pre-token protocol is worth farming next?</h1>
+    <p class="lede">Every protocol that records no token, ranked by <b>expected launch value</b> — what its token would be worth if it launches, times the launch odds from the peers' record. The value curve is fitted on the snapshot's own traded tokens and kept only because it beats a flat multiple in ten-fold cross-validation and in three walk-forward windows. Growth and age as value terms were fitted the same way and <b>dropped</b> — both lose to the bare curve, and the Method tab shows the losing numbers.</p>
+    <div id="strip" class="strip" aria-label="Integrity strip"></div>
   </div>
-  <div class="meta" id="meta"></div>
 </header>
-
-<nav class="tabs" id="tabs">
+<nav class="tabs wrap" aria-label="Views">
   <button data-view="board" class="on">Board</button>
-  <button data-view="curve">Size curve &amp; validation</button>
-  <button data-view="anchors">Traded anchors</button>
-  <button data-view="method">Method &amp; limits</button>
+  <button data-view="method">Method &amp; validation</button>
+  <button data-view="traded">Traded — set aside</button>
 </nav>
-
-<main>
-  <section id="view-board" class="view">
-    <div class="stats" id="stats"></div>
+<main class="wrap">
+  <section id="view-board">
     <div class="controls">
-      <input id="q" type="search" placeholder="Search name or slug…" aria-label="Search protocols">
-      <select id="cat" aria-label="Filter by category"><option value="">All categories</option></select>
-      <select id="chain" aria-label="Filter by chain"><option value="">All chains</option></select>
-      <select id="basis" aria-label="Filter by basis">
-        <option value="">All 198 rows</option>
-        <option value="watchlist">Watchlist only (40)</option>
-        <option value="early">Early rows only (158)</option>
-      </select>
-      <select id="sort" aria-label="Sort board">
-        <option value="rank">Sort: implied value</option>
+      <input id="q" type="search" placeholder="Search name or slug…" aria-label="Search">
+      <select id="cat" aria-label="Category"><option value="">All categories</option></select>
+      <select id="sort" aria-label="Sort">
+        <option value="ev">Sort: expected value</option>
+        <option value="implied">Sort: implied if it launches</option>
+        <option value="odds">Sort: launch odds</option>
         <option value="tvl">Sort: TVL</option>
-        <option value="growth">Sort: 7-day growth</option>
-        <option value="age">Sort: age (oldest first)</option>
-        <option value="net">Sort: cheapest farm</option>
+        <option value="age">Sort: age</option>
       </select>
+      <label class="chk"><input id="wl" type="checkbox"> Watchlist only (40)</label>
+      <span id="count" class="count"></span>
     </div>
-    <p class="count" id="count"></p>
-    <table class="board">
-      <thead><tr>
-        <th>#</th><th>Protocol</th><th>Category</th><th>Chains</th>
-        <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th>
-        <th class="num">Implied value</th><th class="num">Farm net</th>
-      </tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-    <p class="hint">Click any row for the model breakdown and the full 7-step farm plan. Implied value is this entry's own claim, never make.fun's.</p>
+    <p class="hint">Click a row for its detail view and farm plan. Expected value is the board's rank key; the range beside it is the 80% conformal band from out-of-fold residuals. “Records no token” is DefiLlama's record, never proof a protocol has no token.</p>
+    <div class="tablewrap"><table id="board">
+      <thead><tr><th>#</th><th>Protocol</th><th>Category</th><th>TVL</th><th>7d</th><th>Age</th><th>Implied</th><th>Odds</th><th>Expected value</th><th>Plan $50 / $250 / $1k</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div id="detail" class="detail" hidden></div>
   </section>
-
-  <section id="view-curve" class="view" hidden>
-    <h2>The size curve, fitted — not assumed</h2>
-    <p class="lede">Log market cap on log TVL, fitted on the snapshot's own <b id="compN"></b> traded tokens. Each dot is a token that already trades; the line is the curve the board is priced from.</p>
-    <canvas id="chart" width="1080" height="420"></canvas>
-    <div class="grid2">
-      <div class="card"><h3>Out-of-sample tests</h3><div id="oos"></div></div>
-      <div class="card"><h3>Outlier stress</h3><div id="stress"></div></div>
-    </div>
-    <div class="grid2">
-      <div class="card"><h3>Size multiples (bootstrap, 1,000 draws)</h3><div id="mults"></div></div>
-      <div class="card"><h3>Category segments</h3><div id="segs"></div></div>
-    </div>
-    <div class="card"><h3>Chain audit — reported, never fitted</h3><div id="chains"></div>
-      <p class="fine">Chain samples outside Ethereum are n ≤ 9, too small to fit. The board applies no chain adjustment; the audit is shown so the reader can see the gap.</p>
-    </div>
-  </section>
-
-  <section id="view-anchors" class="view" hidden>
-    <h2>Traded anchors — the market's own values</h2>
-    <p class="lede">The 24 largest traded tokens in the snapshot, with the market cap the market actually gives them next to the value the curve would predict. The gap between the two columns is the model's honest error.</p>
-    <table class="board">
-      <thead><tr><th>Protocol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Curve value</th><th class="num">Multiple</th></tr></thead>
-      <tbody id="live"></tbody>
-    </table>
-  </section>
-
-  <section id="view-method" class="view" hidden>
-    <h2>Method &amp; limits — read this before farming anything</h2>
-    <div class="card prose" id="method"></div>
-  </section>
+  <section id="view-method" hidden></section>
+  <section id="view-traded" hidden></section>
 </main>
-
-<aside id="detail" class="detail" hidden>
-  <button class="close" id="closeDetail" aria-label="Close detail">✕</button>
-  <div id="detailBody"></div>
-</aside>
-
-<footer>
-  <p>Snapshot <span id="footAsOf"></span> · <span id="footSource"></span> · Model <b>radar-2.5</b> · Implied values are the entry's own claim. “Records no token” is DefiLlama's record, never proof a protocol has no token. No launch date is predicted: the snapshot carries no launch history, so no clock is fitted.</p>
+<footer class="wrap">
+  <p>Implied values are this entry's own claim, never make.fun's. Gas fees are the model's estimates per transaction on the protocol's cheapest listed chain, stated as such — never measured fees. No points program is claimed anywhere: the snapshot records none. No launch date is ever predicted. Built by a program that reads only the sealed snapshot: <span class="mono">node main.ts --input snapshot.json</span> reproduces this page byte for byte.</p>
 </footer>
-
 <script src="../data.js"></script>
 <script src="app.js"></script>
 </body>
